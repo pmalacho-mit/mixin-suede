@@ -54,3 +54,10 @@ export type NullableIfEmptyConstructorParameters<T extends Constructor<any>> =
   ConstructorParameters<T> extends []
     ? null | undefined | []
     : ConstructorParameters<T>;
+
+export type SubTuples<T extends readonly unknown[]> = T extends readonly [
+  infer Head,
+  ...infer Tail
+]
+  ? [Head] | [Head, ...SubTuples<Tail>] | SubTuples<Tail>
+  : never;
