@@ -21,6 +21,22 @@ export type ClassesContainingKey<
   Key extends PropertyKey
 > = ClassListContainingKey<Classes, Key>[number];
 
+export type ResolverFunction<
+  ClassList extends Constructor<any>[],
+  Key extends PropertyKey,
+  ReturnType = any
+> = (
+  ...args: [
+    ...parameters: ParameterTuple<ClassList, Key>,
+    instances: InstanceMap<ClassList>
+  ]
+) => ReturnType;
+
+export type ResolverTuple<
+  ClassList extends Constructor<any>[],
+  Key extends PropertyKey
+> = [...classes: ClassList, resolver: ResolverFunction<ClassList, Key>];
+
 export type ResolveConflict<
   Classes extends Constructor<any>[],
   Key extends OverlappingKeys<InstanceTypes<Classes>>
