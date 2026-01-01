@@ -52,12 +52,79 @@ export type Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;
 
 export type NullableIfEmptyConstructorParameters<T extends Constructor<any>> =
   ConstructorParameters<T> extends []
-    ? null | undefined | []
+    ? null | undefined
     : ConstructorParameters<T>;
 
-export type SubTuples<T extends readonly unknown[]> = T extends readonly [
+export type SubTuples<T extends readonly any[]> = T extends readonly [
   infer Head,
   ...infer Tail
 ]
   ? [Head] | [Head, ...SubTuples<Tail>] | SubTuples<Tail>
   : never;
+
+export type SubTuplesWithEmpty<T extends readonly any[]> = SubTuples<T> | [];
+
+export type RemoveNever<T extends readonly unknown[]> = T extends [
+  infer Head,
+  ...infer Tail
+]
+  ? [Head] extends [never]
+    ? RemoveNever<Tail>
+    : [Head, ...RemoveNever<Tail>]
+  : [];
+
+export type Last<T extends any[]> = T extends [...infer _, infer Tail]
+  ? Tail
+  : never;
+
+export type Pop<T extends any[]> = T extends [...infer Rest, any]
+  ? Rest
+  : never;
+
+export type Flatten<T extends any[]> = T extends [infer Head, ...infer Tail]
+  ? Head extends any[]
+    ? [...Head, ...Flatten<Tail>]
+    : [Head, ...Flatten<Tail>]
+  : [];
+
+export type TrimTrailingNullable<T extends any[]> = T extends [
+  ...infer Rest,
+  infer Last
+]
+  ? Last extends null | undefined
+    ? TrimTrailingNullable<Rest>
+    : T
+  : T;
+
+export type TrimmedTrailingNullableVariants<T extends any[]> = T extends [
+  ...infer Rest,
+  infer Last
+]
+  ? Last extends null | undefined
+    ? TrimmedTrailingNullableVariants<Rest> | T
+    : T
+  : T;
+
+export type TryGetMethodParameters<
+  T extends Constructor<any>,
+  K extends PropertyKey
+> = T extends Constructor<infer U>
+  ? K extends keyof U
+    ? U[K] extends (...args: infer Args) => any
+      ? Args
+      : []
+    : []
+  : [];
+
+export type NullableParameterTuple<
+  Classes extends Constructor<any>[],
+  K extends PropertyKey
+> = {
+  [i in keyof Classes]: TryGetMethodParameters<Classes[i], K> extends []
+    ? null | undefined
+    : TryGetMethodParameters<Classes[i], K>;
+};
+
+export type RemoveNeverFromRecord<R extends Record<string, any>> = {
+  [K in keyof R as R[K] extends never ? never : K]: R[K];
+};

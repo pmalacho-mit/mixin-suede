@@ -10,6 +10,7 @@ import type {
   ClassProperty,
   ClassHasProperty,
   SubTuples,
+  NullableParameterTuple,
 } from "../release/utils";
 
 type UtilityTypes = {
@@ -23,6 +24,7 @@ type UtilityTypes = {
   ClassProperty: ClassProperty<Constructor, string>;
   ClassHasProperty: ClassHasProperty<any, string>;
   SubTuples: SubTuples<readonly unknown[]>;
+  NullableParameterTuple: NullableParameterTuple<Constructor[], string>;
 };
 
 describe("Utility Types", () => {
@@ -305,6 +307,29 @@ describe("Utility Types", () => {
         | [number, string, boolean];
 
       expectTypeOf<SubTuples<Input>>().toEqualTypeOf<Expected>();
+    });
+  });
+
+  describe("NullableParameterTuple" satisfies keyof UtilityTypes, () => {
+    test("should create nullable parameter tuples for class methods", () => {
+      class A {
+        method(x: number, y: string): void {}
+      }
+      class B {
+        method(): void {}
+      }
+      class C {
+        method(flag: boolean): void {}
+      }
+
+      type Result = NullableParameterTuple<
+        [typeof A, typeof B, typeof C],
+        "method"
+      >;
+
+      expectTypeOf<Result>().toEqualTypeOf<
+        [[number, string], null | undefined, [boolean]]
+      >();
     });
   });
 });

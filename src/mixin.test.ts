@@ -1,60 +1,151 @@
 import { test, describe, expectTypeOf } from "vitest";
 import type {
+  ResolveConflict,
   MergeAndResolveConflicts,
-  ConflictMap,
+  ConflictResolutionMap,
   AllConstructorParameters,
-  ClassListContainingKey,
+  ClassesContainingKey,
+  GetInstance,
 } from "../release/mixin";
+import { mixin } from "../release";
 
 type Types = {
-  ConflictMap: ConflictMap<any[]>;
+  ConflictMap: ConflictResolutionMap<any[]>;
   MergeAndResolveConflicts: MergeAndResolveConflicts<any[], any>;
   AllConstructorParameters: AllConstructorParameters<any[]>;
-  ClassListContainingKey: ClassListContainingKey<any[], string>;
+  ClassListContainingKey: ClassesContainingKey<any[], string>;
+  ResolveConflict: ResolveConflict<any[], never>;
 };
 
 describe("Types", () => {
+  describe("ResolveConflict" satisfies keyof Types, () => {
+    test("should correctly identify conflict map types", () => {
+      class A {
+        test(a: number) {}
+      }
+
+      class B {
+        test(b: string) {}
+      }
+
+      class C {
+        test = "";
+      }
+
+      type Args = {
+        A: [a: number];
+        B: [b: string];
+        C: null | undefined;
+        Instance: GetInstance<[typeof A, typeof B, typeof C]>;
+      };
+
+      expectTypeOf<
+        ResolveConflict<[typeof A, typeof B, typeof C], "test">
+      >().toEqualTypeOf<
+        | null
+        | typeof A
+        | typeof B
+        | typeof C
+        | readonly [resolver: (instance: Args["Instance"]) => any]
+        | readonly [
+            typeof A,
+            typeof B,
+            typeof C,
+            resolver: (
+              ...args: [Args["A"], Args["B"], Args["C"], Args["Instance"]]
+            ) => any
+          ]
+        | readonly [
+            typeof B,
+            typeof C,
+            resolver: (...args: [Args["B"], Args["C"], Args["Instance"]]) => any
+          ]
+        | readonly [
+            typeof A,
+            resolver: (...args: [Args["A"], Args["Instance"]]) => any
+          ]
+        | readonly [
+            typeof C,
+            resolver: (...args: [Args["C"], Args["Instance"]]) => any
+          ]
+        | readonly [
+            typeof B,
+            resolver: (...args: [Args["B"], Args["Instance"]]) => any
+          ]
+        | readonly [
+            typeof A,
+            typeof C,
+            resolver: (...args: [Args["A"], Args["C"], Args["Instance"]]) => any
+          ]
+        | readonly [
+            typeof A,
+            typeof B,
+            resolver: (...args: [Args["A"], Args["B"], Args["Instance"]]) => any
+          ]
+      >();
+    });
+  });
+
   describe("ConflictMap" satisfies keyof Types, () => {
     test("should correctly identify conflict map types", () => {
       class A {
         a: number = 0;
         overlappingProperty: string = "A";
-
-        static hello() {}
       }
 
       class B {
         b: string = "B";
         overlappingProperty: number = 0;
-
-        static hello() {}
       }
 
-      expectTypeOf<ConflictMap<[typeof A, typeof B]>>().toEqualTypeOf<{
-        overlappingProperty: typeof A | typeof B;
-      }>();
-
-      expectTypeOf<
-        { overlappingProperty: typeof A } extends ConflictMap<
-          [typeof A, typeof B]
-        >
-          ? true
-          : false
-      >().toEqualTypeOf<true>();
+      type IsResolution<T> = T extends ConflictResolutionMap<
+        [typeof A, typeof B]
+      >
+        ? true
+        : false;
 
       const resolutionA = { overlappingProperty: A };
-
-      expectTypeOf<
-        typeof resolutionA extends ConflictMap<[typeof A, typeof B]>
-          ? true
-          : false
-      >().toEqualTypeOf<true>();
+      expectTypeOf<IsResolution<typeof resolutionA>>().toEqualTypeOf<true>();
 
       const resolutionB = { overlappingProperty: B };
+      expectTypeOf<IsResolution<typeof resolutionB>>().toEqualTypeOf<true>();
+
+      const resolutionNull = { overlappingProperty: null };
+      expectTypeOf<IsResolution<typeof resolutionNull>>().toEqualTypeOf<true>();
+
+      const resolver = mixin.resolver([A, B]);
+
+      const resolutionCustomA = resolver.overlappingProperty(
+        A,
+        (a, instance) => 0
+      );
       expectTypeOf<
-        typeof resolutionB extends ConflictMap<[typeof A, typeof B]>
-          ? true
-          : false
+        IsResolution<typeof resolutionCustomA>
+      >().toEqualTypeOf<true>();
+
+      const resolutionCustomB = resolver.overlappingProperty(
+        B,
+        (b, instance) => ""
+      );
+      expectTypeOf<
+        IsResolution<typeof resolutionCustomB>
+      >().toEqualTypeOf<true>();
+
+      const resolutionCustomBoth = resolver.overlappingProperty(
+        A,
+        B,
+        (a, b, instance) => {}
+      );
+      expectTypeOf<
+        IsResolution<typeof resolutionCustomBoth>
+      >().toEqualTypeOf<true>();
+
+      const resolutionCustomNeither = resolver.overlappingProperty(
+        null,
+        (instance) => 405 as const
+      );
+      expectTypeOf<
+        IsResolution<typeof resolutionCustomNeither>
       >().toEqualTypeOf<true>();
     });
   });
@@ -92,6 +183,88 @@ describe("Types", () => {
         b: string;
         overlappingProperty: number;
       }>();
+
+      type MergedOnNull = MergeAndResolveConflicts<
+        [typeof A, typeof B],
+        { overlappingProperty: null }
+      >;
+
+      expectTypeOf<MergedOnNull>().toEqualTypeOf<{
+        a: number;
+        b: string;
+      }>();
+
+      const resolver = mixin.resolver([A, B]);
+
+      const resolutonOnCustomNeither = resolver.overlappingProperty(
+        null,
+        (instance) => {}
+      );
+
+      const resolutionCustomOnA = resolver.overlappingProperty(
+        A,
+        (a, instance) => 1 as const
+      );
+
+      type MergedOnCustomA = MergeAndResolveConflicts<
+        [typeof A, typeof B],
+        typeof resolutionCustomOnA
+      >;
+
+      expectTypeOf<MergedOnCustomA>().toEqualTypeOf<{
+        a: number;
+        b: string;
+        overlappingProperty: () => 1;
+      }>();
+
+      const resolutionCustomOnB = resolver.overlappingProperty(
+        B,
+        (b, instance) => "hello" as const
+      );
+
+      type MergedOnCustomB = MergeAndResolveConflicts<
+        [typeof A, typeof B],
+        typeof resolutionCustomOnB
+      >;
+
+      expectTypeOf<MergedOnCustomB>().toEqualTypeOf<{
+        a: number;
+        b: string;
+        overlappingProperty: () => "hello";
+      }>();
+
+      const resolutionCustomOnBoth = resolver.overlappingProperty(
+        A,
+        B,
+        (a, b, instance) => true as const
+      );
+
+      type MergedOnCustomBoth = MergeAndResolveConflicts<
+        [typeof A, typeof B],
+        typeof resolutionCustomOnBoth
+      >;
+
+      expectTypeOf<MergedOnCustomBoth>().toEqualTypeOf<{
+        a: number;
+        b: string;
+        overlappingProperty: () => true;
+      }>();
+
+      const resolutionCustomOnNeither = resolver.overlappingProperty(
+        null,
+        (instance) => 405 as const
+      );
+
+      type MergedOnCustomNeither = MergeAndResolveConflicts<
+        [typeof A, typeof B],
+        typeof resolutionCustomOnNeither
+      >;
+
+      expectTypeOf<MergedOnCustomNeither>().toEqualTypeOf<{
+        a: number;
+        b: string;
+        overlappingProperty: () => 405;
+      }>();
     });
   });
 
@@ -111,7 +284,7 @@ describe("Types", () => {
 
       expectTypeOf<
         AllConstructorParameters<[typeof A, typeof B, typeof C]>
-      >().toEqualTypeOf<[[number], [string, boolean], null | undefined | []]>();
+      >().toEqualTypeOf<[[number], [string, boolean], null | undefined]>();
 
       const candidate = [[42], ["hello", true], null] as const;
 
@@ -126,6 +299,29 @@ describe("Types", () => {
           ? true
           : false
       >().toEqualTypeOf<true>();
+    });
+  });
+
+  describe("ClassListContainingKey" satisfies keyof Types, () => {
+    test("should correctly identify class list containing key types", () => {
+      class A {
+        overlappingProperty: string = "A";
+      }
+
+      class B {
+        overlappingProperty: number = 0;
+      }
+
+      class C {
+        uniqueProperty: boolean = true;
+      }
+
+      type ClassList = ClassesContainingKey<
+        [typeof A, typeof B, typeof C],
+        "overlappingProperty"
+      >;
+
+      expectTypeOf<ClassList>().toEqualTypeOf<[typeof A, typeof B]>();
     });
   });
 });

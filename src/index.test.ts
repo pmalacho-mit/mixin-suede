@@ -1,81 +1,210 @@
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, expectTypeOf } from "vitest";
 import { mixin } from "../release";
 
 describe("My Test Suite", () => {
-  test("My Test Case", () => {
+  test("Handle readonly / mutable property correctly", () => {
     class A {
-      a: number;
-      test(name: string) {
-        return "Hello, " + name + "! From A";
-      }
-      constructor(x: number) {
-        this.a = x;
-      }
+      readonly dummy: string = "constant";
     }
 
     class B {
-      b: string;
-      c: string;
-      test = "B";
-      constructor(hello: string, world: string) {
-        this.b = hello;
-        this.c = world;
+      dummy: string = "mutable";
+    }
+
+    class MixedA extends mixin([A, B], {
+      dummy: A,
+    }) {}
+
+    const a = new MixedA();
+    // @ts-expect-error
+    a.dummy = "changed";
+
+    class MixedB extends mixin([A, B], {
+      dummy: B,
+    }) {}
+
+    const b = new MixedB();
+    b.dummy = "changed"; // This should not error!
+  });
+
+  test("Take implementation from specific class", () => {
+    class Alpha {
+      value: string;
+      constructor(value: string) {
+        this.value = value;
+      }
+
+      getValue() {
+        return `Alpha: ${this.value}`;
       }
     }
 
-    class C {
-      d: boolean = true;
-      constructor() {}
+    class Beta {
+      value: string;
+      constructor(value: string) {
+        this.value = value;
+      }
+
+      getValue() {
+        return `Beta: ${this.value}`;
+      }
     }
 
-    // No conflicts in A, B, C => we don’t need a conflict map
-    class Mixed extends mixin(A, B, C, {
-      /* Option 1:
-      [This currently works!]
-      Basic conflict resolution. Simply use 'A'’s version of 'test'.
-      The mixin's type of 'test' is simple A's type of test. */
-      test: A,
+    class Mixed extends mixin([Alpha, Beta], {
+      value: null, // Omit conflicting property
+      getValue: Alpha,
+    }) {}
 
-      /* TODO Option 2:
-      Conflict resolution by leveraging multiple classe's implementation of the conflicting key (i.e. 'test' of `A` here).
-      Considering the leading elements of the tuple the "Classes" and the final element the "Function".
-      The Function provided as the last index of the tuple must receive:
-      - as the leading arguments, the arguments tuples for the 'test' property of the provided "Classes" (type is `null | undefined ` if method takes no arguemnts, or if the property is not a method).
-      - as the final argument, a map-like object that maps each mixed‑in class to its instance (i.e. instances.get(A) is the instance of A, instances.get(B) is the instance of B, etc. Ideally, I'd like to access by `instance[A]` but I don't think that's possible).
-        - NOTE: instances contains all mixed-in class instances, so you can access other classes' instances if needed. In this way, providing classes as the leading arguments of the tuple is used to define the arguments of the mixin's 'test' property.
-      Whatever it returns becomes the return type of the mixin's 'test' property (async is allowed).
-      The arguments of the mixin's 'test' method match the types of the leading arguments to Function (e.g. `...[a, b]` below).
-      so on the mixin instance, the type of test looks like:
-      ```
-      test(...args: [[name: string], null | undefined]): number;
-      ```
+    const mixedInstance = new Mixed(["hello"], ["world"]);
 
-      and invoking it looks like:
-      const mixied = new Mixed(...);
-      mixied.test(["world"], null);
-       */
-      test: [
-        A,
-        B,
-        (a, b, instances) =>
-          instances.get(A).test(...a).length + instances.get(B).test.length,
+    // @ts-expect-error
+    const _ = mixedInstance.value; // 'value' should be omitted
+
+    expect(mixedInstance.getValue()).toBe("Alpha: hello");
+  });
+
+  test("Merge implementations", () => {
+    class Circle {
+      radius: number;
+      constructor(radius: number) {
+        this.radius = radius;
+      }
+
+      area() {
+        return Math.PI * this.radius * this.radius;
+      }
+    }
+
+    class Square {
+      side: number;
+      constructor(side: number) {
+        this.side = side;
+      }
+
+      area() {
+        return this.side * this.side;
+      }
+    }
+
+    class CircleSquare extends mixin([Circle, Square], {
+      area: [
+        Circle,
+        Square,
+        (_, __, instance) => {
+          return instance(Circle).area() + instance(Square).area();
+        },
       ],
-    }) {
-      constructor() {
-        // Provide one argument tuple per mixed class; use `null` for zero‑argument classes
-        super([0], ["ahoy", "matey"], null);
+    }) {}
+
+    let radius = 3;
+    let side = 4;
+    const shape = new CircleSquare([radius], [side]);
+
+    const expectedArea = () => Math.PI * radius * radius + side * side;
+
+    expect(shape.area()).toBeCloseTo(expectedArea());
+
+    expect(shape.instance(Circle)).toBeInstanceOf(Circle);
+    expect(shape.instance(Square)).toBeInstanceOf(Square);
+    expect(shape[0]).toBeInstanceOf(Circle);
+    expect(shape[1]).toBeInstanceOf(Square);
+
+    shape.radius = radius = 10;
+    shape.side = side = 5;
+
+    expect(shape[0].radius).toBe(10);
+    expect(shape[1].side).toBe(5);
+
+    expect(shape.area()).toBeCloseTo(expectedArea());
+  });
+
+  test("Merge implementation with 'resolver' function", () => {
+    class Red {
+      value: number = 255;
+
+      saturate(factor: number) {
+        this.value = Math.min(255, this.value + factor);
       }
     }
 
-    const m = new Mixed();
+    class Green {
+      value: number = 255;
 
-    expect(m.a).toBe(0);
-    expect(m.b).toBe("ahoy");
-    expect(m.c).toBe("matey");
-    expect(m.d).toBe(true);
-    expect(m.test("world")).toBe("Hello, world! From A"); // Assuming Option 1
-    expect(m.test(["world"], null)).toBe(
-      "Hello, world! From A".length + "B".length
-    ); // Assuming Option 2
+      saturate(factor: number) {
+        this.value = Math.min(255, this.value + factor);
+      }
+    }
+
+    class Blue {
+      value: number = 255;
+
+      saturate(factor: number) {
+        this.value = Math.min(255, this.value + factor);
+      }
+    }
+
+    class RedderColor extends mixin(
+      [Red, Green, Blue],
+      ({ saturate, value }) => ({
+        ...value(
+          Red,
+          Green,
+          Blue,
+          (_, __, ___, instance) =>
+            (instance(Red).value << 16) |
+            (instance(Green).value << 8) |
+            instance(Blue).value
+        ),
+        ...saturate(Red, Green, Blue, (red, green, blue, instance) => {
+          let [r, g, b] = [red, green, blue].flat();
+          g = Math.min(r, g);
+          b = Math.min(g, b);
+
+          instance(Red).saturate(r);
+          instance(Green).saturate(g);
+          instance(Blue).saturate(b);
+        }),
+      })
+    ) {}
+
+    const color = new RedderColor();
+
+    expect(color.value()).toBe(0xffffff);
+
+    color.saturate([10], [20], [30]);
+  });
+
+  test("Getter exploration", () => {
+    class Value {
+      prop: string = "X";
+    }
+
+    class Getter {
+      private _prop: string = "Y";
+
+      get prop() {
+        return this._prop;
+      }
+    }
+
+    class UseGetter extends mixin([Value, Getter], {
+      prop: Getter,
+    }) {}
+
+    const a = new UseGetter();
+    expect(a.prop).toBe("Y");
+
+    class UseGetterFunction extends mixin([Value, Getter], {
+      prop: [
+        Getter,
+        (_, instance) => {
+          return `Custom: ${instance(Getter).prop}`;
+        },
+      ],
+    }) {}
+
+    const b = new UseGetterFunction();
+    expectTypeOf<typeof b.prop>().toEqualTypeOf<() => string>();
+    expect(b.prop()).toBe("Custom: Y");
   });
 });
