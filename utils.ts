@@ -41,12 +41,45 @@ export type ClassProperty<
   K extends PropertyKey
 > = T extends Constructor<infer U> ? U[K & keyof U] : never;
 
+type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <
+  T
+>() => T extends Y ? 1 : 2
+  ? A
+  : B;
+
+// https://github.com/type-challenges/type-challenges/issues/25081
+export type ReadonlyKeys<T extends object> = {
+  [P in keyof T]-?: IfEquals<
+    { [Q in P]: T[P] },
+    { -readonly [Q in P]: T[P] },
+    never,
+    P
+  >;
+}[keyof T];
+
+export type NonReadonlyKeys<T extends object> = {
+  [k in keyof T]: k extends ReadonlyKeys<T> ? never : k;
+}[keyof T];
+
 export type ClassHasProperty<
   T,
   K extends PropertyKey,
   If = true,
   Else = false
 > = T extends Constructor<infer U> ? (K extends keyof U ? If : Else) : Else;
+
+export type IsReadonlyClassProperty<
+  T,
+  K extends PropertyKey,
+  If = true,
+  Else = false
+> = T extends Constructor<infer U extends object>
+  ? ClassHasProperty<T, K> extends true
+    ? K extends ReadonlyKeys<U>
+      ? If
+      : Else
+    : Else
+  : Else;
 
 export type Expand<T> = T extends infer O ? { [K in keyof O]: O[K] } : never;
 
@@ -127,4 +160,8 @@ export type NullableParameterTuple<
 
 export type RemoveNeverFromRecord<R extends Record<string, any>> = {
   [K in keyof R as R[K] extends never ? never : K]: R[K];
+};
+
+export type Mutable<T> = {
+  -readonly [P in keyof T]: T[P];
 };

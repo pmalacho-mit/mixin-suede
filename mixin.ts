@@ -13,9 +13,10 @@ import type {
   RemoveNever,
   Pop,
   TrimTrailingNullable,
-  //TrimmedTrailingNullableVariants,
   Flatten,
   RemoveNeverFromRecord,
+  IsReadonlyClassProperty,
+  Mutable,
 } from "./utils";
 import type { mixin } from "./";
 
@@ -78,66 +79,74 @@ export type ConflictResolutionMap<Classes extends Constructor<any>[]> = {
   [K in OverlappingKeys<InstanceTypes<Classes>>]: ResolveConflict<Classes, K>;
 };
 
+export namespace InheritedProperty {
+  type Tuple<Property, Readonly extends boolean> = [
+    property: Property,
+    readonly: Readonly
+  ];
+
+  export type Entry<T extends Constructor<any>, K extends PropertyKey> = Tuple<
+    ClassProperty<T, K>,
+    IsReadonlyClassProperty<T, K>
+  >;
+
+  type Mutability = "readonly" | "mutable";
+
+  export type Keys<T, M extends Mutability> = {
+    [K in keyof T]: T[K] extends Tuple<any, infer R>
+      ? R extends (M extends "readonly" ? true : false)
+        ? K
+        : never
+      : never;
+  }[keyof T];
+
+  export type Get<T, M extends Mutability> = Pick<
+    {
+      [K in keyof T]: T[K] extends Tuple<infer P, boolean> ? P : never;
+    },
+    Keys<T, M>
+  > extends infer U
+    ? M extends "readonly"
+      ? Readonly<U>
+      : Mutable<U>
+    : never;
+
+  export type PreserveMutability<T> = Omit<
+    T,
+    Keys<T, "readonly"> | Keys<T, "mutable">
+  > &
+    Get<T, "readonly"> &
+    Get<T, "mutable">;
+}
+
 export type MergeAndResolveConflicts<
   Classes extends Constructor<any>[],
   Conflicts extends ConflictResolutionMap<Classes>
 > = Expand<
   Omit<Intersect<InstanceTypes<Classes>>, keyof Conflicts> &
-    RemoveNeverFromRecord<{
-      [K in keyof Conflicts]: Conflicts[K] extends null
-        ? never // Property should be omitted
-        : Conflicts[K] extends Classes[number]
-        ? ClassProperty<Conflicts[K], K> // Property comes from the specified class
-        : Conflicts[K] extends readonly [
-            Classes[number],
-            (...args: infer Args) => infer Return
-          ]
-        ? (...args: TrimTrailingNullable<Flatten<Pop<Args>>>) => Return // Property is a method defined by the resolver with the same arguments as the class property
-        : Conflicts[K] extends readonly [
-            ...Classes[number][],
-            (...args: infer Args) => infer Return
-          ]
-        ? (...args: TrimTrailingNullable<Pop<Args>>) => Return // Property is a method defined by the resolver
-        : never;
-    }>
+    InheritedProperty.PreserveMutability<
+      RemoveNeverFromRecord<{
+        [K in keyof Conflicts]: Conflicts[K] extends null
+          ? never // Property should be omitted
+          : Conflicts[K] extends Classes[number]
+          ? InheritedProperty.Entry<Conflicts[K], K> // Property comes from the specified class
+          : Conflicts[K] extends readonly [
+              Classes[number],
+              (...args: infer Args) => infer Return
+            ]
+          ? (...args: TrimTrailingNullable<Flatten<Pop<Args>>>) => Return // Property is a method defined by the resolver with the same arguments as the class property
+          : Conflicts[K] extends readonly [
+              ...Classes[number][],
+              (...args: infer Args) => infer Return
+            ]
+          ? (...args: TrimTrailingNullable<Pop<Args>>) => Return // Property is a method defined by the resolver
+          : never;
+      }>
+    >
 >;
 
 export type AllConstructorParameters<Classes extends Constructor<any>[]> = {
   [K in keyof Classes]: NullableIfEmptyConstructorParameters<Classes[K]>;
-};
-
-const wrap = <Source>(
-  sink: any,
-  source: Source,
-  key: keyof Source,
-  description?: PropertyDescriptor,
-  bindIfFunction: boolean = false
-) => {
-  // For simple writable properties, use direct getter/setter for better performance
-  if (!bindIfFunction && description?.writable) {
-    Object.defineProperty(sink, key, {
-      get: () => source[key],
-      set: (value) => {
-        source[key] = value;
-      },
-      enumerable: description?.enumerable ?? true,
-      configurable: description?.configurable ?? true,
-    });
-  } else {
-    Object.defineProperty(sink, key, {
-      get: () =>
-        bindIfFunction && typeof source[key] === "function"
-          ? source[key].bind(source)
-          : source[key],
-      set: description?.writable
-        ? (value) => {
-            source[key] = value;
-          }
-        : undefined,
-      enumerable: description?.enumerable ?? true,
-      configurable: description?.configurable ?? true,
-    });
-  }
 };
 
 export const resolverProxy = <const T extends Constructor<any>[]>(
