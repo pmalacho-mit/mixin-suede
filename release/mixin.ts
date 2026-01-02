@@ -17,6 +17,7 @@ import type {
   RemoveNeverFromRecord,
   IsReadonlyClassProperty,
   Mutable,
+  NullableParameters,
 } from "./utils";
 import type { mixin } from "./";
 
@@ -42,12 +43,20 @@ export type ResolverFunction<
   Classes extends Constructor<any>[],
   Key extends PropertyKey,
   Instance extends GetInstance<Classes>
-> = (
-  ...args: readonly [
-    ...parameters: NullableParameterTuple<Classes, Key>,
-    instance: Instance
-  ]
-) => any;
+> = Classes extends [infer constructor extends Constructor<any>]
+  ? NullableParameters<constructor, Key> extends infer params extends any[]
+    ? (...args: readonly [...parameters: params, instance: Instance]) => any // effectively using the signature of a single class
+    : (
+        ...args: readonly [parameterless: null | undefined, instance: Instance]
+      ) => any
+  : (
+      ...args: readonly [
+        ...parameters: NullableParameterTuple<Classes, Key>,
+        instance: Instance
+      ]
+    ) => any;
+
+type AnyResolver = ResolverFunction<any, any, any>;
 
 export type ResolverTuple<
   Classes extends Constructor<any>[],
@@ -236,116 +245,239 @@ export default function (
       ? conflictMapOrResolver(resolverProxy(classes))
       : conflictMapOrResolver;
 
-  return class {
-    readonly #instances: Map<Constructor<any>, any>;
+  type ConflictMap = ConflictResolutionMap<Constructor<any>[]>;
+  const conflictMap: ConflictMap = conflicts ?? ({} as ConflictMap);
+
+  const resolverConfigs: BindResolverConfig[] = [];
+  const conflictChoice: Record<string, Constructor<any> | null | undefined> =
+    Object.create(null);
+
+  for (const property in conflictMap) {
+    const resolution = conflictMap[property as keyof ConflictMap];
+
+    if (resolution === null) {
+      conflictChoice[property] = null;
+      continue;
+    }
+
+    if (Array.isArray(resolution)) {
+      const classesCount = (resolution as []).length - 1;
+      const resolve = (resolution as [])[classesCount] as AnyResolver;
+      const isSingle =
+        (resolution as unknown[]).length === 1 && resolution[0] !== null;
+
+      resolverConfigs.push({ property, resolve, classesCount, isSingle });
+      conflictChoice[property] = null;
+      continue;
+    }
+
+    conflictChoice[property] = resolution as Constructor<any>;
+  }
+
+  const boundProperties = new Set<string>();
+
+  for (const { property } of resolverConfigs) boundProperties.add(property);
+
+  const prototypePlans: BindPrototypeConfig[] = [];
+
+  const shouldBind = (property: string, ctor: Constructor<any>) => {
+    const choice = conflictChoice[property];
+    if (choice === null) return false;
+    if (choice && choice !== ctor) return false;
+    if (boundProperties.has(property)) return false;
+    return true;
+  };
+
+  for (let classIndex = 0; classIndex < classes.length; classIndex++) {
+    const Constructor = classes[classIndex];
+    const prototype = Constructor.prototype;
+    const propertyNames = Object.getOwnPropertyNames(prototype);
+
+    for (let p = 0; p < propertyNames.length; p++) {
+      const property = propertyNames[p];
+      if (property === "constructor") continue;
+      if (!shouldBind(property, Constructor)) continue;
+
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, property);
+      if (!descriptor) continue;
+
+      const isMethod = typeof descriptor.value === "function";
+      const isGetter = typeof descriptor.get === "function";
+      const isSetter = typeof descriptor.set === "function";
+
+      if (!isMethod && !isGetter && !isSetter) continue;
+
+      boundProperties.add(property);
+      prototypePlans.push({ property, classIndex, descriptor });
+    }
+  }
+
+  const $instances = Symbol("instances");
+  const $instanceByConstructor = Symbol("instanceMap");
+  const ownKeysCache = new Array<string[] | null>(classes.length).fill(null);
+
+  const Mixed = class {
+    [$instances]!: any[];
+    [$instanceByConstructor]!: Map<Constructor<any>, any>;
 
     instance(Constructor: Constructor<any>) {
-      return this.#instances.get(Constructor);
+      return this[$instanceByConstructor].get(Constructor);
     }
 
     constructor(...tuples: (any[] | null | undefined)[]) {
-      this.#instances = new Map();
+      this[$instances] = new Array(classes.length);
+      this[$instanceByConstructor] = new Map<Constructor<any>, any>();
 
       for (let i = 0; i < classes.length; i++) {
         const Constructor = classes[i];
-        const instance = new Constructor(...(tuples[i] ?? []));
+        const args = tuples[i] ?? [];
+        const instance = new Constructor(...args);
+
+        this[$instances][i] = instance;
+        this[$instanceByConstructor].set(Constructor, instance);
         (this as any)[i] = instance;
-        this.#instances.set(Constructor, instance);
-        const prototype = Object.getPrototypeOf(instance);
 
-        for (const property of Object.getOwnPropertyNames(instance)) {
-          if (conflicts && property in conflicts) {
-            if (conflicts[property as keyof typeof conflicts] !== Constructor)
-              continue;
-          } else if (Object.prototype.hasOwnProperty.call(this, property))
-            continue;
+        if (ownKeysCache[i]) continue;
 
-          const description = Object.getOwnPropertyDescriptor(
+        const keys = Object.getOwnPropertyNames(instance);
+        ownKeysCache[i] = keys;
+
+        for (let k = 0; k < keys.length; k++) {
+          const property = keys[k];
+          if (!shouldBind(property, Constructor)) continue;
+
+          const descriptor = Object.getOwnPropertyDescriptor(
             instance,
             property
           );
-
-          Object.defineProperty(this, property, {
-            get: () => instance[property],
-            set: description?.writable
-              ? (value) => (void 0, (instance[property] = value))
-              : undefined,
-            enumerable: description?.enumerable ?? true,
-            configurable: description?.configurable ?? true,
-          });
-        }
-
-        for (const property of Object.getOwnPropertyNames(prototype)) {
-          if (property === "constructor") continue;
-          const descriptor = Object.getOwnPropertyDescriptor(
-            prototype,
-            property
-          );
-
           if (!descriptor) continue;
 
-          const isMethod = typeof descriptor.value === "function";
-          const isGetter = typeof descriptor.get === "function";
-          const isSetter = typeof descriptor.set === "function";
-
-          if (!isMethod && !isGetter && !isSetter) continue;
-
-          if (conflicts && property in conflicts) {
-            if (conflicts[property as keyof typeof conflicts] !== Constructor)
-              continue;
-          } else if (Object.prototype.hasOwnProperty.call(this, property))
-            continue;
-
-          if (isMethod)
-            Object.defineProperty(this, property, {
-              value: descriptor.value.bind(instance),
-              writable: false,
-              enumerable: descriptor.enumerable ?? true,
-              configurable: descriptor.configurable ?? true,
-            });
-          else
-            Object.defineProperty(this, property, {
-              get: descriptor.get?.bind(instance),
-              set: descriptor.set?.bind(instance),
-              enumerable: descriptor.enumerable ?? true,
-              configurable: descriptor.configurable ?? true,
-            });
-        }
-      }
-
-      const getInstance = this.instance.bind(this);
-
-      for (const property in conflicts) {
-        const resolution = conflicts[property as keyof typeof conflicts];
-        if (resolution === null || !Array.isArray(resolution)) continue;
-
-        type AnyResolver = ResolverFunction<any, any, any>;
-
-        const classesCount = (resolution as []).length - 1;
-        const resolve = (resolution as [])[classesCount] as AnyResolver;
-
-        const isSingleClassResolution =
-          (resolution as unknown[]).length === 1 && resolution[0] !== null;
-
-        if (isSingleClassResolution) {
-          Object.defineProperty(this, property, {
-            value: (...args: any[]) => resolve(args, getInstance),
-            writable: false,
-            enumerable: true,
-            configurable: false,
-          });
-        } else {
-          Object.defineProperty(this, property, {
-            value: (...args: any[]) => {
-              while (args.length < classesCount) args.push(null);
-              return resolve(...args, getInstance);
-            },
-            writable: false,
-            enumerable: true,
-            configurable: false,
-          });
+          boundProperties.add(property);
+          defineOwnBinding(
+            Mixed.prototype,
+            property,
+            i,
+            descriptor,
+            $instances
+          );
         }
       }
     }
   };
+
+  definePrototypeBindings(Mixed.prototype, prototypePlans, $instances);
+  defineResolverBindings(
+    Mixed.prototype,
+    resolverConfigs,
+    $instanceByConstructor
+  );
+
+  return Mixed;
+}
+
+type BindPrototypeConfig = {
+  property: string;
+  classIndex: number;
+  descriptor: PropertyDescriptor;
+};
+
+function definePrototypeBindings(
+  target: object,
+  configs: BindPrototypeConfig[],
+  $instances: symbol
+) {
+  for (let i = 0; i < configs.length; i++) {
+    const { property, classIndex, descriptor } = configs[i];
+    const enumerable = descriptor.enumerable ?? true;
+    const configurable = descriptor.configurable ?? true;
+
+    if (typeof descriptor.value === "function") {
+      const method = descriptor.value;
+      Object.defineProperty(target, property, {
+        value: function (...args: any[]) {
+          const instance = (this as any)[$instances][classIndex];
+          return method.apply(instance, args);
+        },
+        writable: false,
+        enumerable,
+        configurable,
+      });
+      continue;
+    }
+
+    Object.defineProperty(target, property, {
+      get: descriptor.get
+        ? function (this: any) {
+            const instance = this[$instances][classIndex];
+            return descriptor.get!.call(instance);
+          }
+        : undefined,
+      set: descriptor.set
+        ? function (this: any, value: any) {
+            const instance = this[$instances][classIndex];
+            return descriptor.set!.call(instance, value);
+          }
+        : undefined,
+      enumerable,
+      configurable,
+    });
+  }
+}
+
+function defineOwnBinding(
+  target: object,
+  property: string,
+  classIndex: number,
+  descriptor: PropertyDescriptor,
+  $instances: symbol
+) {
+  const enumerable = descriptor.enumerable ?? true;
+  const configurable = descriptor.configurable ?? true;
+
+  Object.defineProperty(target, property, {
+    get: function (this: any) {
+      const instance = this[$instances][classIndex];
+      return instance[property];
+    },
+    set: descriptor.writable
+      ? function (this: any, value: any) {
+          const instance = this[$instances][classIndex];
+          instance[property] = value;
+        }
+      : undefined,
+    enumerable,
+    configurable,
+  });
+}
+
+type BindResolverConfig = {
+  property: string;
+  resolve: AnyResolver;
+  classesCount: number;
+  isSingle: boolean;
+};
+
+function defineResolverBindings(
+  target: object,
+  configs: BindResolverConfig[],
+  $instanceByConstructor: symbol
+) {
+  for (let i = 0; i < configs.length; i++) {
+    const { property, resolve, classesCount, isSingle } = configs[i];
+
+    Object.defineProperty(target, property, {
+      value: function (this: any, ...args: any[]) {
+        const getInstance = (ctor: Constructor<any>) =>
+          this[$instanceByConstructor].get(ctor);
+
+        if (isSingle) return resolve(args, getInstance);
+
+        while (args.length < classesCount) args.push(null);
+        return resolve(...args, getInstance);
+      },
+      writable: false,
+      enumerable: true,
+      configurable: false,
+    });
+  }
 }

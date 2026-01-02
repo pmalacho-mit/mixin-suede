@@ -6,7 +6,6 @@ import type {
   AllConstructorParameters,
   ClassesContainingKey,
   GetInstance,
-  InheritedProperty,
 } from "../release/mixin";
 import { mixin } from "../release";
 
@@ -40,50 +39,68 @@ describe("Types", () => {
         Instance: GetInstance<[typeof A, typeof B, typeof C]>;
       };
 
+      type IsResolution<T> = T extends ResolveConflict<
+        [typeof A, typeof B, typeof C],
+        "test"
+      >
+        ? true
+        : false;
+
+      // Omit the conflicting property
+      expectTypeOf<IsResolution<null>>().toEqualTypeOf<true>();
+
+      // Take implementation from a specific class
       expectTypeOf<
-        ResolveConflict<[typeof A, typeof B, typeof C], "test">
-      >().toEqualTypeOf<
-        | null
-        | typeof A
-        | typeof B
-        | typeof C
-        | readonly [resolver: (instance: Args["Instance"]) => any]
-        | readonly [
-            typeof A,
-            typeof B,
-            typeof C,
-            resolver: (
-              ...args: [Args["A"], Args["B"], Args["C"], Args["Instance"]]
-            ) => any
-          ]
-        | readonly [
-            typeof B,
-            typeof C,
-            resolver: (...args: [Args["B"], Args["C"], Args["Instance"]]) => any
-          ]
-        | readonly [
-            typeof A,
-            resolver: (...args: [Args["A"], Args["Instance"]]) => any
-          ]
-        | readonly [
-            typeof C,
-            resolver: (...args: [Args["C"], Args["Instance"]]) => any
-          ]
-        | readonly [
-            typeof B,
-            resolver: (...args: [Args["B"], Args["Instance"]]) => any
-          ]
-        | readonly [
-            typeof A,
-            typeof C,
-            resolver: (...args: [Args["A"], Args["C"], Args["Instance"]]) => any
-          ]
-        | readonly [
-            typeof A,
-            typeof B,
-            resolver: (...args: [Args["A"], Args["B"], Args["Instance"]]) => any
-          ]
-      >();
+        IsResolution<typeof A | typeof B | typeof C>
+      >().toEqualTypeOf<true>();
+
+      // Provide a resolver tuple with custom resolver function
+      expectTypeOf<
+        IsResolution<
+          | readonly [resolver: (instance: Args["Instance"]) => any]
+          | readonly [
+              typeof A,
+              typeof B,
+              typeof C,
+              resolver: (
+                ...args: [Args["A"], Args["B"], Args["C"], Args["Instance"]]
+              ) => any
+            ]
+          | readonly [
+              typeof A,
+              resolver: (...args: [...Args["A"], Args["Instance"]]) => any
+            ]
+          | readonly [
+              typeof B,
+              resolver: (...args: [...Args["B"], Args["Instance"]]) => any
+            ]
+          | readonly [
+              typeof C,
+              resolver: (...args: [Args["C"], Args["Instance"]]) => any
+            ]
+          | readonly [
+              typeof A,
+              typeof B,
+              resolver: (
+                ...args: [Args["A"], Args["B"], Args["Instance"]]
+              ) => any
+            ]
+          | readonly [
+              typeof A,
+              typeof C,
+              resolver: (
+                ...args: [Args["A"], Args["C"], Args["Instance"]]
+              ) => any
+            ]
+          | readonly [
+              typeof B,
+              typeof C,
+              resolver: (
+                ...args: [Args["B"], Args["C"], Args["Instance"]]
+              ) => any
+            ]
+        >
+      >().toEqualTypeOf<true>();
     });
   });
 
