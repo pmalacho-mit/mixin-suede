@@ -6,6 +6,7 @@ import type {
   AllConstructorParameters,
   ClassesContainingKey,
   GetInstance,
+  InheritedProperty,
 } from "../release/mixin";
 import { mixin } from "../release";
 
@@ -154,7 +155,7 @@ describe("Types", () => {
     test("should correctly identify merge and resolve conflicts types", () => {
       class A {
         a: number = 0;
-        overlappingProperty: string = "A";
+        readonly overlappingProperty: string = "A";
       }
 
       class B {
@@ -175,7 +176,7 @@ describe("Types", () => {
       expectTypeOf<MergedOnA>().toEqualTypeOf<{
         a: number;
         b: string;
-        overlappingProperty: string;
+        readonly overlappingProperty: string;
       }>();
 
       expectTypeOf<MergedOnB>().toEqualTypeOf<{

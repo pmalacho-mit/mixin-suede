@@ -7,7 +7,7 @@ class X {
 
   x = X.Initial;
 
-  readonly shared = true as boolean;
+  shared = true as boolean;
 
   getValue() {
     return this.x;

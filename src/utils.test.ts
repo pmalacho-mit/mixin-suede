@@ -1,16 +1,19 @@
 import { describe, test, expect, expectTypeOf } from "vitest";
-import type {
-  Constructor,
-  InstanceFromConstructor,
-  InstanceTypes,
-  Intersect,
-  UnionToIntersection,
-  DetectOverlap,
-  OverlappingKeys,
-  ClassProperty,
-  ClassHasProperty,
-  SubTuples,
-  NullableParameterTuple,
+import {
+  type Constructor,
+  type InstanceFromConstructor,
+  type InstanceTypes,
+  type Intersect,
+  type UnionToIntersection,
+  type DetectOverlap,
+  type OverlappingKeys,
+  type ClassProperty,
+  type ClassHasProperty,
+  type SubTuples,
+  type NullableParameterTuple,
+  type ReadonlyKeys,
+  type NonReadonlyKeys,
+  type IsReadonlyClassProperty,
 } from "../release/utils";
 
 type UtilityTypes = {
@@ -25,7 +28,12 @@ type UtilityTypes = {
   ClassHasProperty: ClassHasProperty<any, string>;
   SubTuples: SubTuples<readonly unknown[]>;
   NullableParameterTuple: NullableParameterTuple<Constructor[], string>;
+  ReadonlyKeys: ReadonlyKeys<any>;
+  NonReadonlyKeys: NonReadonlyKeys<any>;
+  IsReadonlyClassProperty: IsReadonlyClassProperty<any, string>;
 };
+
+const name = (...args: (keyof UtilityTypes)[]) => args.join(", ");
 
 describe("Utility Types", () => {
   describe("Constructor" satisfies keyof UtilityTypes, () => {
@@ -322,14 +330,30 @@ describe("Utility Types", () => {
         method(flag: boolean): void {}
       }
 
-      type Result = NullableParameterTuple<
-        [typeof A, typeof B, typeof C],
-        "method"
-      >;
-
-      expectTypeOf<Result>().toEqualTypeOf<
-        [[number, string], null | undefined, [boolean]]
-      >();
+      expectTypeOf<
+        NullableParameterTuple<[typeof A, typeof B, typeof C], "method">
+      >().toEqualTypeOf<[[number, string], null | undefined, [boolean]]>();
     });
   });
+
+  describe(
+    name("ReadonlyKeys", "NonReadonlyKeys", "IsReadonlyClassProperty"),
+    () => {
+      test("should determine if a property is readonly", () => {
+        class Example {
+          readonly readOnlyProp: string = "constant";
+          mutableProp: number = 42;
+        }
+
+        expectTypeOf<ReadonlyKeys<Example>>().toEqualTypeOf<"readOnlyProp">();
+        expectTypeOf<NonReadonlyKeys<Example>>().toEqualTypeOf<"mutableProp">();
+        expectTypeOf<
+          IsReadonlyClassProperty<typeof Example, "readOnlyProp">
+        >().toEqualTypeOf<true>();
+        expectTypeOf<
+          IsReadonlyClassProperty<typeof Example, "mutableProp">
+        >().toEqualTypeOf<false>();
+      });
+    }
+  );
 });

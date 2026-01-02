@@ -16,6 +16,7 @@ describe("My Test Suite", () => {
     }) {}
 
     const a = new MixedA();
+
     // @ts-expect-error
     a.dummy = "changed";
 
