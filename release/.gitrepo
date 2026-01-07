@@ -6,7 +6,7 @@
 [subrepo]
 	remote = https://github.com/pmalacho-mit/mixin-suede
 	branch = release
-	commit = 5afc2252f7b30181a79b884f0414c06951739f30
-	parent = fe793d0ab283dcff2f0c2458dbfdf195b7aae291
+	commit = 7ea301766ee3cab877dc6fabd702fb00f36487ed
+	parent = ef9eafb9034cc47548a60271b519023ff24fb552
 	method = merge
 	cmdver = 0.4.9
