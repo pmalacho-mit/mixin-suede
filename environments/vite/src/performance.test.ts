@@ -1,7 +1,11 @@
-import { describe, test, expect } from "vitest";
+/// <reference types="node" />
+import { describe, test, expect, afterAll } from "vitest";
 import format from "./format";
-import { mixin } from "../release";
+import { mixin } from "../../../release";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 
+// pd: classes
 class X {
   static readonly Initial = 10;
 
@@ -83,10 +87,6 @@ class SimpleMixed extends mixin([X, Y], {
   getValue: Y,
 }) {}
 
-const _ = new SimpleMixed();
-_.shared = false;
-_.getValue();
-
 class CustomMixed extends mixin([X, Y], {
   shared: null,
   getValue: [
@@ -104,11 +104,15 @@ class CustomMixed extends mixin([X, Y], {
     this[1].shared = value;
   }
 }
+// pd: classes
+
+const defaultIterations = 1000000;
+const defaultWarmup = 1000;
 
 const benchmark = <T>(
   fn: () => T,
-  iterations: number = 1000000,
-  warmup = 1000
+  iterations: number = defaultIterations,
+  warmup = defaultWarmup
 ) => {
   for (let i = 0; i < warmup; i++) fn();
 
@@ -130,8 +134,18 @@ const classes = [
 ];
 const instances = () => classes.map((cls) => [cls, new cls()] as const);
 
+interface BenchmarkResult {
+  category: string;
+  class: string;
+  elapsed: number;
+  relative: number;
+}
+
+const performanceResults: BenchmarkResult[] = [];
+
 const comparer = <T extends new (...args: any[]) => any = typeof Standard>(
-  standard?: T
+  standard?: T,
+  category?: string
 ) => {
   const elapsedByClass = new Map<(typeof classes)[number], number>();
   return {
@@ -147,11 +161,20 @@ const comparer = <T extends new (...args: any[]) => any = typeof Standard>(
       );
 
       for (const [cls, elapsed] of elapsedByClass) {
+        const relative = elapsed / yardstick;
+        if (category) {
+          performanceResults.push({
+            category,
+            class: cls.name,
+            elapsed,
+            relative,
+          });
+        }
         if (cls === Yardstick) continue;
         console.log(
           format("tab")`${cls.name}: ${elapsed.toFixed(2)}ms (${format(
             "red"
-          )`${(elapsed / yardstick).toFixed(2)}`}x of ${Yardstick.name})`
+          )`${relative.toFixed(2)}`}x of ${Yardstick.name})`
         );
       }
     },
@@ -161,7 +184,7 @@ const comparer = <T extends new (...args: any[]) => any = typeof Standard>(
 describe("Performance: Property Access (x)", () => {
   test("non-conflicting property access", () => {
     console.log(`Property Access (x)`);
-    const compare = comparer();
+    const compare = comparer(undefined, "Property Access (x)");
     for (const [cls, instance] of instances()) {
       const result = benchmark(() => instance.x);
       expect(result.initial).toBe(X.Initial);
@@ -175,7 +198,7 @@ describe("Performance: Property Access (x)", () => {
 describe("Performance: Method Calls (getValue)", () => {
   test("method calls on conflicting property", () => {
     console.log(`Method Calls (getValue)`);
-    const compare = comparer();
+    const compare = comparer(undefined, "Method Calls (getValue)");
     for (const [cls, instance] of instances()) {
       const result = benchmark(() => instance.getValue());
       const expected = cls === SimpleMixed ? Y.Initial : X.Initial + Y.Initial;
@@ -190,7 +213,7 @@ describe("Performance: Method Calls (getValue)", () => {
 describe("Performance: Instance Creation", () => {
   test("instance creation", () => {
     console.log(`Instance Creation`);
-    const compare = comparer();
+    const compare = comparer(undefined, "Instance Creation");
     for (const cls of classes) {
       const result = benchmark(() => new cls());
       expect(result.initial).toBeInstanceOf(cls);
@@ -204,7 +227,7 @@ describe("Performance: Instance Creation", () => {
 describe("Performance: Property Mutation", () => {
   test("non-conflicting property mutations", () => {
     console.log(`Property Mutation (x, y)`);
-    const compare = comparer();
+    const compare = comparer(undefined, "Property Mutation (x, y)");
     for (const [cls, instance] of instances()) {
       const x = X.Initial + 10;
       const y = Y.Initial + 5;
@@ -221,7 +244,7 @@ describe("Performance: Property Mutation", () => {
 
   test("conflicting property mutations", () => {
     console.log(`Property Mutation (shared)`);
-    const compare = comparer();
+    const compare = comparer(undefined, "Property Mutation (shared)");
     for (const [cls, instance] of instances()) {
       const result = benchmark(() => {
         instance.shared = false;
@@ -242,7 +265,10 @@ describe("Performance: Instance Access", () => {
     const manualAccess = benchmark(() => manual._x);
     expect(manualAccess.final).toBeInstanceOf(X);
 
-    const indexComparer = comparer(ManualComposition);
+    const indexComparer = comparer(
+      ManualComposition,
+      "Instance Access (by index)"
+    );
     indexComparer.store(ManualComposition, manualAccess.elapsed);
 
     const simpleIndex = benchmark(() => simple[0]);
@@ -256,7 +282,10 @@ describe("Performance: Instance Access", () => {
     console.log("Instance Access (by index)");
     indexComparer.report();
 
-    const instanceComparer = comparer(ManualComposition);
+    const instanceComparer = comparer(
+      ManualComposition,
+      "Instance Access (by instance method)"
+    );
     instanceComparer.store(ManualComposition, manualAccess.elapsed);
 
     const simpleInstance = benchmark(() => simple.instance(X));
@@ -270,4 +299,50 @@ describe("Performance: Instance Access", () => {
     console.log("Instance Access (by instance method)");
     instanceComparer.report();
   });
+});
+
+afterAll(() => {
+  // Generate markdown table
+  const markdown: string[] = [
+    "# Performance Benchmarks",
+    "",
+    "Below is a erformance comparison of mixin-suede against standard JavaScript patterns.",
+    "",
+    `All benchmarks run ${defaultIterations} iterations (after ${defaultWarmup} warmup iterations). Values shown are execution time in milliseconds and relative performance compared to the baseline (Standard class, or ManualComposition for instance access).`,
+    "",
+    "[](./performance.test.ts?region=include(classes)&wrap=dropdown(See-test-classes.))",
+  ];
+
+  // Group results by category
+  const categories = [...new Set(performanceResults.map((r) => r.category))];
+
+  for (const category of categories) {
+    const categoryResults = performanceResults.filter(
+      (r) => r.category === category
+    );
+
+    markdown.push(`## ${category}`, "");
+    markdown.push("| Class | Time (ms) | Relative Performance |");
+    markdown.push("|-------|-----------|---------------------|");
+
+    for (const result of categoryResults) {
+      markdown.push(
+        `| ${result.class} | ${result.elapsed.toFixed(
+          2
+        )} | ${result.relative.toFixed(2)}x slower |`
+      );
+    }
+
+    markdown.push("");
+  }
+
+  markdown.push(
+    "---",
+    "",
+    `*Benchmarks generated on ${new Date().toISOString()}*`
+  );
+
+  const outputPath = join(__dirname, "PERFORMANCE.md");
+  writeFileSync(outputPath, markdown.join("\n"), "utf-8");
+  console.log(`\n✓ Performance results written to ${outputPath}`);
 });

@@ -6,8 +6,8 @@ import type {
   AllConstructorParameters,
   ClassesContainingKey,
   GetInstance,
-} from "../release/mixin";
-import { mixin } from "../release";
+} from "../../../release/mixin";
+import { mixin } from "../../../release";
 
 type Types = {
   ConflictMap: ConflictResolutionMap<any[]>;

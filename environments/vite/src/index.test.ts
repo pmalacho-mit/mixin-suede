@@ -1,5 +1,5 @@
 import { describe, test, expect, expectTypeOf } from "vitest";
-import { mixin } from "../release";
+import { mixin } from "../../../release";
 
 describe("My Test Suite", () => {
   test("Handle readonly / mutable property correctly", () => {
@@ -400,10 +400,10 @@ describe("My Test Suite", () => {
     expect(store.get("user")).toEqual({ name: "Alice" });
 
     // @ts-expect-error - cache should not be accessible
-    const _ = store.cache;
+    expect(store.cache).toBeNullable();
 
     // @ts-expect-error - listeners should not be accessible
-    const __ = store.listeners;
+    expect(store.listeners).toBeNullable();
   });
 
   test("Constructor parameter composition", () => {

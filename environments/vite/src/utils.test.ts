@@ -14,7 +14,7 @@ import {
   type ReadonlyKeys,
   type NonReadonlyKeys,
   type IsReadonlyClassProperty,
-} from "../release/utils";
+} from "../../../release/utils";
 
 type UtilityTypes = {
   Constructor: Constructor;

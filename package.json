@@ -4,17 +4,14 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "test": "vitest"
+    "test": "npm run test --prefix ./environments/vite",
+    "doc": "npm run generate:performance:documentation --prefix ./environments/vite && parkdown",
+    "undoc": "parkdown -d"
+  },
+  "dependencies": {
+    "typescript": "~5.9.3"
   },
   "devDependencies": {
-    "typescript": "~5.9.3",
-    "vite": "npm:rolldown-vite@7.2.5",
-    "vitest": "^4.0.16"
-  },
-  "overrides": {
-    "vite": "npm:rolldown-vite@7.2.5"
+    "@p-buddy/parkdown": "^0.0.34"
   }
 }

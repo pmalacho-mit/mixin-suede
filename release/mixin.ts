@@ -261,12 +261,10 @@ export default function (
     }
 
     if (Array.isArray(resolution)) {
-      const classesCount = (resolution as []).length - 1;
-      const resolve = (resolution as [])[classesCount] as AnyResolver;
-      const isSingle =
-        (resolution as unknown[]).length === 1 && resolution[0] !== null;
-
-      resolverConfigs.push({ property, resolve, classesCount, isSingle });
+      const count = (resolution as []).length - 1;
+      const resolve = (resolution as [])[count] as AnyResolver;
+      const classesCount = count > 1 ? count : resolution[0] !== null ? 1 : 0;
+      resolverConfigs.push({ property, resolve, classesCount });
       conflictChoice[property] = null;
       continue;
     }
@@ -434,6 +432,8 @@ function defineOwnBinding(
   const enumerable = descriptor.enumerable ?? true;
   const configurable = descriptor.configurable ?? true;
 
+  console.log("defineOwnBinding", { property, descriptor });
+
   Object.defineProperty(target, property, {
     get: function (this: any) {
       const instance = this[$instances][classIndex];
@@ -454,7 +454,6 @@ type BindResolverConfig = {
   property: string;
   resolve: AnyResolver;
   classesCount: number;
-  isSingle: boolean;
 };
 
 function defineResolverBindings(
@@ -463,14 +462,14 @@ function defineResolverBindings(
   $instanceByConstructor: symbol
 ) {
   for (let i = 0; i < configs.length; i++) {
-    const { property, resolve, classesCount, isSingle } = configs[i];
+    const { property, resolve, classesCount } = configs[i];
 
     Object.defineProperty(target, property, {
       value: function (this: any, ...args: any[]) {
         const getInstance = (ctor: Constructor<any>) =>
           this[$instanceByConstructor].get(ctor);
 
-        if (isSingle) return resolve(args, getInstance);
+        //if (isSingle) return resolve(...args, getInstance);
 
         while (args.length < classesCount) args.push(null);
         return resolve(...args, getInstance);
