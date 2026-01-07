@@ -149,13 +149,18 @@ export type TryGetMethodParameters<
     : []
   : [];
 
+export type NullableParameters<
+  Class extends Constructor<any>,
+  K extends PropertyKey
+> = TryGetMethodParameters<Class, K> extends []
+  ? null | undefined
+  : TryGetMethodParameters<Class, K>;
+
 export type NullableParameterTuple<
   Classes extends Constructor<any>[],
   K extends PropertyKey
 > = {
-  [i in keyof Classes]: TryGetMethodParameters<Classes[i], K> extends []
-    ? null | undefined
-    : TryGetMethodParameters<Classes[i], K>;
+  [i in keyof Classes]: NullableParameters<Classes[i], K>;
 };
 
 export type RemoveNeverFromRecord<R extends Record<string, any>> = {
