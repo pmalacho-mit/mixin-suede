@@ -432,8 +432,6 @@ function defineOwnBinding(
   const enumerable = descriptor.enumerable ?? true;
   const configurable = descriptor.configurable ?? true;
 
-  console.log("defineOwnBinding", { property, descriptor });
-
   Object.defineProperty(target, property, {
     get: function (this: any) {
       const instance = this[$instances][classIndex];

@@ -104,6 +104,78 @@ class CustomMixed extends mixin([X, Y], {
     this[1].shared = value;
   }
 }
+
+class ProxyMixed {
+  private _x: X;
+  private _y: Y;
+
+  x!: number;
+  y!: number;
+  shared!: boolean;
+  getValue!: () => number;
+
+  constructor() {
+    this._x = new X();
+    this._y = new Y();
+
+    return new Proxy(this, {
+      get(target, prop: string | symbol): any {
+        // Handle special properties
+        if (prop === "_x" || prop === "_y") {
+          return (target as any)[prop];
+        }
+
+        // Handle shared property (conflict resolution)
+        if (prop === "shared") {
+          return target._x.shared && target._y.shared;
+        }
+
+        // Handle getValue method (conflict resolution)
+        if (prop === "getValue") {
+          return () => target._x.getValue() + target._y.getValue();
+        }
+
+        // Forward to X if it has the property
+        if (prop in target._x) {
+          const value = (target._x as any)[prop];
+          return typeof value === "function" ? value.bind(target._x) : value;
+        }
+
+        // Forward to Y if it has the property
+        if (prop in target._y) {
+          const value = (target._y as any)[prop];
+          return typeof value === "function" ? value.bind(target._y) : value;
+        }
+
+        return (target as any)[prop];
+      },
+
+      set(target, prop: string | symbol, value: any): boolean {
+        // Handle shared property (conflict resolution)
+        if (prop === "shared") {
+          target._x.shared = value;
+          target._y.shared = value;
+          return true;
+        }
+
+        // Forward to X if it has the property
+        if (prop in target._x) {
+          (target._x as any)[prop] = value;
+          return true;
+        }
+
+        // Forward to Y if it has the property
+        if (prop in target._y) {
+          (target._y as any)[prop] = value;
+          return true;
+        }
+
+        (target as any)[prop] = value;
+        return true;
+      },
+    }) as this;
+  }
+}
 // pd: classes
 
 const defaultIterations = 1000000;
@@ -131,6 +203,7 @@ const classes = [
   ManualComposition,
   SimpleMixed,
   CustomMixed,
+  ProxyMixed,
 ];
 const instances = () => classes.map((cls) => [cls, new cls()] as const);
 
